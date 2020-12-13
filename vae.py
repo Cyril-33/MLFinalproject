@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 import torch
 import torch.nn as nn
 import torch.utils.data as Data
@@ -36,8 +37,8 @@ test_data = torchvision.datasets.MNIST(
     ]),
     download=DOWNLOAD_MNIST
 )
-print(train_data.train_data.numpy().shape)
-print(test_data.test_data.numpy().shape)
+#print(train_data.train_data.numpy().shape)
+#print(test_data.test_data.numpy().shape)
 train_loader = Data.DataLoader(
     dataset=train_data,
     batch_size=BATCH_SIZE,
@@ -49,7 +50,6 @@ plt.imshow(train_data.train_data[2].numpy(), cmap='gray')
 plt.title('%i' % train_data.train_labels[2])
 plt.show()
 
-# Data Loader for easy mini-batch return in training, the image batch shape will be (50, 1, 28, 28)
 train_loader = Data.DataLoader(dataset=train_data, batch_size=BATCH_SIZE, shuffle=True)
 
 
@@ -93,42 +93,43 @@ class Net(nn.Module):
             nn.Sigmoid()
         )
     def encoder(self, x):
-        conv_out_1 = self.en_conv_1(x)
-        conv_out_1 = conv_out_1.view(x.size(0), -1)
+        conv_output_1 = self.en_conv_1(x)
+        conv_output_1 = conv_output_1.view(x.size(0), -1)
 
-        conv_out_2 = self.en_conv_2(x)
-        conv_out_2 = conv_out_2.view(x.size(0), -1)
+        conv_output_2 = self.en_conv_2(x)
+        conv_output_2 = conv_output_2.view(x.size(0), -1)
 
-        encoded_fc1 = self.en_fc_1(conv_out_1)
-        encoded_fc2 = self.en_fc_2(conv_out_2)
+        encoded_fc1 = self.en_fc_1(conv_output_1)
+        encoded_fc2 = self.en_fc_2(conv_output_2)
 
-        return encoded_fc1, encoded_fc2  # 这里分别表示均值和标准差的采样
+        return encoded_fc1, encoded_fc2  
+
+    def forward(self, x):
+        mean, std = self.encoder(x)
+        code = self.sampler(mean, std)
+        out = self.decoder(code)
+        return out, code, mean, std
 
     def sampler(self, mean, std):
         var = std.mul(0.5).exp_()
-        eps = torch.FloatTensor(var.size()).normal_()  # 生成一个与输入大小一致的标准正态分布随机数
+        eps = torch.FloatTensor(var.size()).normal_()  
         eps = Variable(eps)
         if self.gpu_status:
             eps = eps.cuda()
         return eps.mul(var).add_(mean)
 
     def decoder(self, x):
-        out = self.de_fc(x)
-        out = out.view(-1, 16, 7, 7)
-        out = self.de_conv(out)
-        return out
+        output = self.de_fc(x)
+        output = output.view(-1, 16, 7, 7)
+        output = self.de_conv(output)
+        return output
 
-    def forward(self, x):
-        mean, std = self.encoder(x)
-        code = self.sampler(mean, std)
-        out = self.decoder(code)
-        # return encoded_fc, decoded
-        return out, code, mean, std
+    
 
-use_cuda = torch.cuda.is_available()
-device = torch.device("cuda" if use_cuda else "cpu")
+cuda = torch.cuda.is_available()
+device = torch.device("cuda" if cuda else "cpu")
 
-autoencoder = Net(gpu_status=use_cuda).to(device)
+autoencoder = Net(gpu_status=cuda).to(device)
 
 optimizer = torch.optim.Adam(autoencoder.parameters(), lr=LR)
 bce = nn.BCELoss()
@@ -143,43 +144,37 @@ if torch.cuda.is_available():
 
 
 def loss_f(out, target, mean, std):
-    # 公式上理解，std实际上是方差的对数
-    # bceloss = bce(out, target)
     mseloss = mse(out, target)
 
-    # latent_loss = torch.sum(mean.pow(2).add_(std.exp()).mul_(-1).add_(1).add_(std)).mul_(-0.5)
     KLD = -0.5 * torch.sum(1 + std - mean.pow(2) - std.exp())
 
     return mseloss + 0.0002 * KLD
 
-# initialize figure
 f, a = plt.subplots(2, N_TEST_IMG, figsize=(5, 2))
-plt.ion()   # continuously plot
+plt.ion()  
 
-# original data (first row) for viewing
-view_data = train_data.train_data[:N_TEST_IMG].view(-1,1,28,28).type(torch.cuda.FloatTensor)
+viewData = train_data.train_data[:N_TEST_IMG].view(-1,1,28,28).type(torch.cuda.FloatTensor)
 
 
 for i in range(N_TEST_IMG):
-    a[0][i].imshow(np.reshape((view_data.cpu()).data.numpy()[i], (28, 28)), cmap='gray'); a[0][i].set_xticks(()); a[0][i].set_yticks(())
+    a[0][i].imshow(np.reshape((viewData.cpu()).data.numpy()[i], (28, 28)), cmap='gray'); a[0][i].set_xticks(()); a[0][i].set_yticks(())
 
 for epoch in range(EPOCH):
     for step, (x, b_label) in enumerate(train_loader):
 
-        b_x = Variable(x).to(device)   # batch x, shape (batch, 28*28)
-        b_y = Variable(x).to(device)   # batch y, shape (batch, 28*28)
+        b_x = Variable(x).to(device)  
+        b_y = Variable(x).to(device)  
 
         output, _, mean, std = autoencoder(b_x)
         loss = loss_f(output, b_y, mean, std)
-        optimizer.zero_grad()               # clear gradients for this training step
-        loss.backward()                     # backpropagation, compute gradients
-        optimizer.step()                    # apply gradients
+        optimizer.zero_grad()         
+        loss.backward()                  
+        optimizer.step()                   
 
         if step % 100 == 0:
-            print('Epoch: ', epoch, '| train loss: %.4f' % loss.item())
+            print('Epoch: ', epoch, '| train_loss: %.4f' % loss.item())
 
-            # plotting decoded image (second row)
-            decoded_data, _, _, _ = autoencoder(view_data)
+            decoded_data, _, _, _ = autoencoder(viewData)
             for i in range(N_TEST_IMG):
                 a[1][i].clear()
                 a[1][i].imshow(np.reshape((decoded_data.cpu()).data.numpy()[i], (28, 28)), cmap='gray')
@@ -188,12 +183,10 @@ for epoch in range(EPOCH):
 
 plt.ioff()
 plt.show()
-
-# visualize in 3D plot
-view_data = train_data.train_data[:200].view(-1, 28*28).type(torch.FloatTensor)/255.
-encoded_data, _ = autoencoder(view_data)
+viewData = train_data.train_data[:200].view(-1, 28*28).type(torch.FloatTensor)/255.
+encodedData, _ = autoencoder(viewData)
 fig = plt.figure(2); ax = Axes3D(fig)
-X, Y, Z = encoded_data.data[:, 0].numpy(), encoded_data.data[:, 1].numpy(), encoded_data.data[:, 2].numpy()
+X, Y, Z = encodedData.data[:, 0].numpy(), encodedData.data[:, 1].numpy(), encodedData.data[:, 2].numpy()
 values = train_data.train_labels[:200].numpy()
 for x, y, z, s in zip(X, Y, Z, values):
     c = cm.rainbow(int(255*s/9)); ax.text(x, y, z, s, backgroundcolor=c)
