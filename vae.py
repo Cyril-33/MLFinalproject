@@ -10,14 +10,12 @@ from matplotlib import cm
 import numpy as np
 
 
-# torch.manual_seed(1)    # reproducible
-
-# Hyper Parameters
-EPOCH = 100
-BATCH_SIZE = 50
-LR = 0.001         # learning rate
+    
 DOWNLOAD_MNIST = False
 N_TEST_IMG = 5
+EPOCH = 100
+BATCH_SIZE = 50
+LR = 0.001    
 
 train_data = torchvision.datasets.MNIST(
     root='./mnist',
