@@ -15,49 +15,39 @@ import matplotlib.pyplot as plt
 start_time = time.time()
 plt.rcParams['image.cmap'] = 'gray'
 
-def show_images(images):
-    sqrtn = int(np.ceil(np.sqrt(images.shape[0])))
 
-    for index, image in enumerate(images):
+
+# Discriminator Loss => BCELoss
+def d_loss_fun(input, target):
+    return nn.BCELoss()(input, target)
+
+
+def g_loss_fun(input):
+    target = torch.ones([input.shape[0], 1])
+    target = target.to(device)
+    return nn.BCELoss()(input, target)
+
+def show_photo(image):
+    sqrtn = int(np.ceil(np.sqrt(image.shape[0])))
+
+    for index, image in enumerate(image):
         plt.subplot(sqrtn, sqrtn, index+1)
         plt.imshow(image.reshape(28, 28))
 
 
-# Discriminator Loss => BCELoss
-def d_loss_function(inputs, targets):
-    return nn.BCELoss()(inputs, targets)
-
-
-def g_loss_function(inputs):
-    targets = torch.ones([inputs.shape[0], 1])
-    targets = targets.to(device)
-    return nn.BCELoss()(inputs, targets)
-
-
-# GPU
 device = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 print('GPU State:', device)
-
-# Model
 G = generator().to(device)
 D = discriminator().to(device)
 print(G)
 print(D)
-
-# Settings
 epochs = 200
 lr = 0.0002
 batch_size = 64
 g_optimizer = optim.Adam(G.parameters(), lr=lr, betas=(0.5, 0.999))
-d_optimizer = optim.Adam(D.parameters(), lr=lr, betas=(0.5, 0.999))
-
-
-# Transform
+d_optimize = optim.Adam(D.parameters(), lr=lr, betas=(0.5, 0.999))
 transform = transforms.Compose([transforms.ToTensor(),
                                 transforms.Normalize((0.5,), (0.5,))])
-
-
-# Load data
 train_set = datasets.MNIST('mnist/', train=True, download=False, transform=transform)
 test_set = datasets.MNIST('mnist/', train=False, download=False, transform=transform)
 train_loader = DataLoader(train_set, batch_size=batch_size, shuffle=True)
@@ -68,54 +58,51 @@ test_loader = DataLoader(test_set, batch_size=batch_size, shuffle=False)
 for epoch in range(epochs):
     epoch += 1
 
-    for times, data in enumerate(train_loader):
-        times += 1
-        real_inputs = data[0].to(device)
-        test = 255 * (0.5 * real_inputs[0] + 0.5)
+    for time, data in enumerate(train_loader):
+        time += 1
+        true_input = data[0].to(device)
+        test = 255 * (0.5 * true_input[0] + 0.5)
 
-        real_inputs = real_inputs.view(-1, 784)
-        real_outputs = D(real_inputs)
-        real_label = torch.ones(real_inputs.shape[0], 1).to(device)
+        true_input = true_input.view(-1, 784)
+        true_output = D(true_input)
+        true_label = torch.ones(true_input.shape[0], 1).to(device)
 
-        noise = (torch.rand(real_inputs.shape[0], 128) - 0.5) / 0.5
+        noise = (torch.rand(true_input.shape[0], 128) - 0.5) / 0.5
         noise = noise.to(device)
-        fake_inputs = G(noise)
-        fake_outputs = D(fake_inputs)
-        fake_label = torch.zeros(fake_inputs.shape[0], 1).to(device)
+        fake_input = G(noise)
+        fake_output = D(fake_input)
+        fake_label = torch.zeros(fake_input.shape[0], 1).to(device)
+        target = torch.cat((true_label, fake_label), 0)
+        output = torch.cat((true_output, fake_output), 0)
+        
 
-        outputs = torch.cat((real_outputs, fake_outputs), 0)
-        targets = torch.cat((real_label, fake_label), 0)
+        d_optimize.zero_grad()
 
-        # Zero the parameter gradients
-        d_optimizer.zero_grad()
-
-        # Backward propagation
-        d_loss = d_loss_function(outputs, targets)
+        d_loss = d_loss_fun(output, target)
         d_loss.backward()
-        d_optimizer.step()
+        d_optimize.step()
 
-        # Generator
-        noise = (torch.rand(real_inputs.shape[0], 128)-0.5)/0.5
+        noise = (torch.rand(true_input.shape[0], 128)-0.5)/0.5
         noise = noise.to(device)
 
-        fake_inputs = G(noise)
-        fake_outputs = D(fake_inputs)
+        fake_input = G(noise)
+        fake_output = D(fake_input)
 
-        g_loss = g_loss_function(fake_outputs)
+        g_loss = g_loss_fun(fake_output)
         g_optimizer.zero_grad()
         g_loss.backward()
         g_optimizer.step()
 
-        if times % 100 == 0 or times == len(train_loader):
-            print('[{}/{}, {}/{}] D_loss: {:.3f}  G_loss: {:.3f}'.format(epoch, epochs, times, len(train_loader), d_loss.item(), g_loss.item()))
+        if time % 100 == 0 or time == len(train_loader):
+            print('[{}/{}, {}/{}] Discriminator_loss: {:.3f}  Generator_loss: {:.3f}'.format(epoch, epochs, time, len(train_loader), d_loss.item(), g_loss.item()))
 
-    imgs_numpy = (fake_inputs.data.cpu().numpy()+1.0)/2.0
-    show_images(imgs_numpy[:16])
+    photo_numpy = (fake_input.data.cpu().numpy()+1.0)/2.0
+    show_photo(photo_numpy[:16])
     plt.show()
 
     if epoch % 50 == 0:
         torch.save(G, 'Generator_epoch_{}.pth'.format(epoch))
-        print('Model saved.')
+        print('saved.')
 
 
 print('Training Finished.')
